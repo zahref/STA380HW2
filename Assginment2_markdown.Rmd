@@ -1,0 +1,318 @@
+---
+title: "Assignemnt 2 : STA380_Part2"
+author: "Zahref Beyabani"
+date: "August 16, 2015"
+output: html_document
+---
+
+# Question 1
+
+##### An excellent way to better understand the underlying patterns of one of my favorite travel hubs is to take a data-science based approach and perform some EDA using cool graphics.
+
+##### The airport being examined is the Austin Bergstorm International Airport, in Austin, TX
+
+#### First, lets read & load the data in 2008 about all flight particulars for this airport
+```{r}
+#https://raw.githubusercontent.com/jgscott/STA380/master/data/
+flight = read.csv("~/Downloads/ABIA.csv")
+```
+
+#### To begin our exploratory analysis, lets see the number of flights delayed in 2008 in ABIA
+
+#### Before that, some data cleaning & treatment:
+
+```{r}
+# Fill NA values in the Delay Columns with 0's to better handle the data
+flight[is.na(flight)] <- 0
+
+# Create those cheeky litte factor variables
+flight$DayofMonth = as.factor(flight$DayofMonth)
+flight$DayOfWeek = as.factor(flight$DayOfWeek)
+flight$Month = as.factor(flight$Month)
+
+attach(flight)
+
+```
+
+### Group By the Day of the Week and the average departure / arrival delay
+```{r}
+avgdepdelay = aggregate(DepDelay,by = list(DayOfWeek), FUN = mean, na.rm= TRUE)
+avgarrdelay = aggregate(ArrDelay,by = list(DayOfWeek), FUN = mean, na.rm= TRUE)
+avgsecdelay = aggregate(SecurityDelay,by = list(DayOfWeek), FUN = mean, na.rm= TRUE)
+avgcardelay = aggregate(CarrierDelay,by = list(DayOfWeek), FUN = mean, na.rm= TRUE)
+avgweatdelay = aggregate(WeatherDelay,by = list(DayOfWeek), FUN = mean, na.rm= TRUE)
+avgNASdelay = aggregate(NASDelay,by = list(DayOfWeek), FUN = mean, na.rm= TRUE)
+avglatefldelay = aggregate(LateAircraftDelay,by = list(DayOfWeek), FUN = mean, na.rm= TRUE)
+
+
+#Aggregating the departure and arrival delays by month of the year
+avgdepdelaymonth = aggregate(DepDelay,by = list(Month), FUN = mean, na.rm= TRUE)
+avgarrdelaymonth = aggregate(ArrDelay,by = list(Month), FUN = mean, na.rm= TRUE)
+avgsecdelaymonth = aggregate(SecurityDelay,by = list(Month), FUN = mean, na.rm= TRUE)
+avgcardelaymonth = aggregate(CarrierDelay,by = list(Month), FUN = mean, na.rm= TRUE)
+avgweatdelaymonth = aggregate(WeatherDelay,by = list(Month), FUN = mean, na.rm= TRUE)
+avgNASdelaymonth = aggregate(NASDelay,by = list(Month), FUN = mean, na.rm= TRUE)
+avglatefldelaymonth = aggregate(LateAircraftDelay,by = list(Month), FUN = mean, na.rm= TRUE)
+
+```
+
+### Plot the average arrival / departure delay time against the day of the week / which month
+
+```{r}
+
+plot(avgdepdelay$x, type ="b", xlab = "Day of the Week", ylab = "Average Delay in Minutes", col = "red", lwd = 3, ylim = c(1,30), main = "Departure & Arrival Delays by Day of Week" )
+lines(avgarrdelay$x, type = "b", col = "darkmagenta", lwd = 3)
+lines(avgsecdelay$x, type = "l", col = "dodgerblue3", lwd = 3)
+lines(avgcardelay$x, type = "l", col = "chocolate1", lwd = 3)
+lines(avgweatdelay$x, type = "l", col = "black", lwd = 3)
+lines(avgNASdelay$x, type = "l", col = "orange", lwd = 3)
+lines(avglatefldelay$x, type = "l", col = "pink", lwd = 3)
+legend ("topright", c("Departure Delay", "Arrival Delay", "Delay due to Security", "Carrier Delay", "Weather Delay", "NAS Delay", "Late Aircraft Delay"), lty = 1, col = c('darkgoldenrod4','darkmagenta', 'dodgerblue3','chocolate1', 'black', 'orange', 'pink'))
+
+# now for month
+
+plot(avgdepdelaymonth$x, type ="b", xlab = "Month of the Year", ylab = "Average Delay in Minutes", col = "darkgoldenrod4", lwd = 3, ylim = c(1,30), main = "Departure & Arrival Delays by Month")
+
+lines(avgarrdelaymonth$x, type = "b", col = "darkmagenta", lwd = 3)
+lines(avgsecdelaymonth$x, type = "l", col = "dodgerblue3", lwd = 3)
+lines(avgcardelaymonth$x, type = "l", col = "chocolate1", lwd = 3)
+lines(avgweatdelaymonth$x, type = "l", col = "black", lwd = 3)
+lines(avgNASdelaymonth$x, type = "l", col = "orange", lwd = 3)
+lines(avglatefldelaymonth$x, type = "l", col = "pink", lwd = 3)
+
+legend ("topright", c("Departure Delay", "Arrival Delay", "Security Delay", "Carrier Delay", "Weather Delay", "NAS Delay", "Late Aircraft Delay"), lty = 1, col = c('darkgoldenrod4','darkmagenta', 'dodgerblue3','chocolate1', 'black', 'orange', 'pink'))
+
+```
+* We see that we have the highest average delay on Friday. 
+
+* We see that we have the highest average delay by month in Decemeber, June, and March.
+    - This is expected as these are popular holiday seasons and we expect higher passenger volume during these periods.
+
+* Across both aggreagations, month-wise & day-wise, Security, Weather, and NAS do not contribute to most of the delay. However, most of the delay comes from the late arrival of the incoming aircraft, and carrier based delays. 
+
+# Question 2
+
+```{r, results='hide'}
+library(tm)
+library(randomForest)
+library(e1071)
+library(rpart)
+library(ggplot2)
+library(caret)
+library(plyr)
+```
+
+### Sourcing the reader plain function
+```{r , results='hide'}
+readerPlain = function(fname){
+  readPlain(elem=list(content=readLines(fname)), 
+            id=fname, language='en') }
+```
+
+### Creating the training corpus
+```{r , results='hide'}
+author_dirs = Sys.glob('STA380/data/ReutersC50/C50train/*')
+author_dirs = author_dirs[1:50]
+file_list = NULL
+tr_labels = NULL
+for(author in author_dirs) {
+  author_name = substring(author, first=33)
+  files_to_add = Sys.glob(paste0(author, '/*.txt'))
+  file_list = append(file_list, files_to_add)
+  tr_labels = append(tr_labels, rep(author_name, length(files_to_add)))
+}
+all_docs = lapply(file_list, readerPlain) 
+names(all_docs) = file_list
+names(all_docs) = sub('.txt', '', names(all_docs))
+
+my_corpus = Corpus(VectorSource(all_docs))
+names(my_corpus) = file_list
+
+# Preprocessing
+my_corpus = tm_map(my_corpus, content_transformer(tolower)) # make everything lowercase
+my_corpus = tm_map(my_corpus, content_transformer(removeNumbers)) # remove numbers
+my_corpus = tm_map(my_corpus, content_transformer(removePunctuation)) # remove punctuation
+my_corpus = tm_map(my_corpus, content_transformer(stripWhitespace)) ## remove excess white-space
+my_corpus = tm_map(my_corpus, content_transformer(removeWords), stopwords("SMART"))
+```
+
+### Creating a document-term-matrix & Dense Matrix for the training corpus
+
+```{r , results='hide'}
+DTM_tr = DocumentTermMatrix(my_corpus)
+DTM_tr = removeSparseTerms(DTM_tr, 0.935)
+```
+
+### Testing data
+
+### Creating the test corpus
+```{r , results='hide'}
+author_dirs = Sys.glob('STA380/data/ReutersC50/C50test/*')
+file_list = NULL
+test_labels = NULL
+for(author in author_dirs) {
+  author_name = substring(author, first=32)
+  files_to_add = Sys.glob(paste0(author, '/*.txt'))
+  file_list = append(file_list, files_to_add)
+  test_labels = append(test_labels, rep(author_name, length(files_to_add)))
+}
+all_docs = lapply(file_list, readerPlain) 
+names(all_docs) = file_list
+names(all_docs) = sub('.txt', '', names(all_docs))
+
+my_corpus_test = Corpus(VectorSource(all_docs))
+names(my_corpus_test) = file_list
+
+# Preprocessing
+my_corpus_test = tm_map(my_corpus_test, content_transformer(tolower)) # make everything lowercase
+my_corpus_test = tm_map(my_corpus_test, content_transformer(removeNumbers)) # remove numbers
+my_corpus_test = tm_map(my_corpus_test, content_transformer(removePunctuation)) # remove punctuation
+my_corpus_test = tm_map(my_corpus_test, content_transformer(stripWhitespace)) ## remove excess white-space
+my_corpus_test = tm_map(my_corpus_test, content_transformer(removeWords), stopwords("SMART"))
+```
+
+### Creating a document-term-matrix & Dense Matrix for the test corpus
+
+```{r , results='hide'}
+DTM_test = DocumentTermMatrix(my_corpus_test)
+DTM_test = removeSparseTerms(DTM_test, 0.935)
+```
+
+#### Dictionary Creation
+```{r , results='hide'}
+# We need a dictionary of terms from the training corpus
+# in order to extract terms from the test corpus
+reuters_dictionary = NULL
+reuters_dictionary = dimnames(DTM_tr)[[2]]
+
+#Create testing DTM & matrix using dictionary words only
+DTM_test = DocumentTermMatrix(my_corpus_test, list(dictionary=reuters_dictionary))
+DTM_test = removeSparseTerms(DTM_test, 0.935)
+#DTM_test = as.matrix(DTM_test)
+```
+
+
+
+## Convert DTM into Data Frames for use in classification models
+
+```{r , results='hide'}
+
+DTM_tr_df = as.data.frame(inspect(DTM_tr))
+#DTM_train$auth_name = train_labels
+DTM_test_df = as.data.frame(inspect(DTM_test))
+#DTM_test$auth_name = test_labels
+
+```
+
+### Lets Run a  Naïve Bayes Model
+
+```{r, results='hide'}
+nb_mod = naiveBayes(x=DTM_tr_df, y=as.factor(tr_labels), laplace=1)
+```
+
+### Lets run predictions on this model
+```{r, results='hide'}
+preditions_nb_mod = predict(nb_mod, DTM_test_df)
+```
+
+### Lets cast these results into a table along with the *ACTUAL* author 
+```{r , results='hide'}
+
+table_nb_mod = as.data.frame(table(preditions_nb_mod,test_labels))
+
+```
+
+### See how often we are wrong 
+#### We will first create a confusion matrix
+```{r , results='hide'}
+nb_confusion = confusionMatrix(table(preditions_nb_mod,test_labels))
+```
+#### Next we will view the statistics from this confusion matrix
+```{r}
+nb_confusion$overall
+```
+* The accuracy is 29% which means on average we will predict the author with a 29% accuracy when given a sample of writing from the R50 corpus
+
+### Lets Run a Random Forest Model
+
+#### Cast the DTMs to regular matrices so the rf package can interpret it
+```{r , results='hide'}
+DTM_test = as.matrix(DTM_test)
+DTM_tr = as.matrix(DTM_tr)
+```
+
+#### Oops! Random Forests *NEEDS* the number of columns in the training and test matricies to be the same. Let's add additional empty columns (for words we havent seen) into the test dataset to coerce alignment.
+
+```{r , results='hide'}
+word_counts = data.frame(DTM_test[,intersect(colnames(DTM_test), colnames(DTM_tr))])
+col_names = read.table(textConnection(""), col.names = colnames(DTM_tr), colClasses = "integer")
+```
+
+#### Bind the word counts along with their names
+
+```{r , results='hide'}
+
+DTM_test_scrubbed = rbind.fill(word_counts, col_names)
+DTM_test_df = as.data.frame(DTM_test_scrubbed)
+```
+
+#### Model this data using a random forest
+
+```{r , results='hide'}
+rf_mod = randomForest(x=DTM_tr_df, y=as.factor(tr_labels), mtry=4, ntree=200)
+```
+
+### Predict using this model
+```{r , results='hide'}
+rf_mod_predictions = predict(rf_mod, data=DTM_test_scrubbed)
+```
+
+### Lets see how this model did!
+
+```{r , results='hide'}
+rf_confusion = confusionMatrix(table(rf_mod_predictions,test_labels))
+rf_confusion$overall
+```
+
+* This random forest model gives us a 69% accuracy which means on average we will predict the author with a 69% accuracy when given a sample of writing from the R50 corpus
+
+### IN CONCLUSION:
+The Naïve Bayes prediction model does not do as good of a job as the Random Forest classifier when presented with articles from the R50 corpus to attribute to a known author.  
+
+# Question 3
+
+```{r}
+library(arules)  # has a big ecosystem of packages built around it
+# Read 
+groceries <- read.transactions("STA380/data/groceries.txt", format = 'basket', sep = ',')
+
+```
+
+### Applying the "apriori" algorithm to find frequent item-sets
+
+```{r}
+groceriesrules <- apriori(groceries, parameter=list(support=.01, confidence=.5, maxlen=5))
+                         
+# Look at the output
+inspect(groceriesrules)
+```
+
+### Choosing a subset to inspect the data:
+### Choose a subset
+### Different subsets on different parameters show different item-sets
+
+### Lets see which Item-Sets are most likely to occur. Recall that Higher Lift means higher statistical dependance
+```{r}
+inspect(subset(groceriesrules, subset=lift > 3))
+```
+* I chose 3 up there because this is the highest value of lift that shows us any subsets
+
+####  Lets see the subset where another product occurs at least 58% of the time along with certain products. I chose 58% as this a very strong confidence within this data beaucause a 59% confidence returns no subsets
+```{r}
+inspect(subset(groceriesrules, subset=confidence > 0.58))
+```
+#### Lets choose the subset that has the highest exclusivity by choosing the highest values for support and confidence 
+```{r}
+inspect(subset(groceriesrules, subset=support > .012 & confidence > 0.58))
+```
+
